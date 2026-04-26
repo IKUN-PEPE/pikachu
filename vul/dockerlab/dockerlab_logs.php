@@ -35,7 +35,11 @@ if(!dockerlab_validate_lab_id($lab_id)){
             }else{
                 $result = dockerlab_run_command(array('docker', 'logs', '--tail', '200', $template['container_name']), 10);
                 if($result['ok']){
-                    $log_text = $result['stdout'] !== '' ? $result['stdout'] : '[最近 200 行日志为空]';
+                    $combined_output = trim($result['stdout']);
+                    if(trim($result['stderr']) !== ''){
+                        $combined_output = trim($combined_output . ($combined_output !== '' ? "\n" : '') . $result['stderr']);
+                    }
+                    $log_text = $combined_output !== '' ? $combined_output : '[最近 200 行日志为空]';
                 }else{
                     $error = $result['stderr'] !== '' ? $result['stderr'] : '读取日志失败';
                 }

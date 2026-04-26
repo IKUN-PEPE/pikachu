@@ -35,7 +35,7 @@ function dockerlab_validate_template($template, &$errors = array()){
         }
     }
 
-    $required_keys = array('id', 'name', 'category', 'image', 'container_name', 'labels', 'ports', 'env', 'cmd', 'entry_url', 'notes');
+    $required_keys = array('id', 'name', 'category', 'image', 'container_name', 'labels', 'ports', 'env', 'cmd', 'entry_url', 'notes', 'enabled');
     foreach($required_keys as $key){
         if(!array_key_exists($key, $template)){
             $errors[] = '模板缺少字段: ' . $key;
@@ -110,6 +110,10 @@ function dockerlab_validate_template($template, &$errors = array()){
         }
     }
 
+    if(!array_key_exists('enabled', $template) || !is_bool($template['enabled'])){
+        $errors[] = 'enabled 必须为布尔值';
+    }
+
     return count($errors) === 0;
 }
 
@@ -136,6 +140,9 @@ function dockerlab_load_templates(){
         }
         $errors = array();
         if(!dockerlab_validate_template($template, $errors)){
+            continue;
+        }
+        if(!$template['enabled']){
             continue;
         }
         $templates[$template['id']] = $template;
