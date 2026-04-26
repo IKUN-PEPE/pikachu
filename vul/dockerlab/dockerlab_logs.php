@@ -19,31 +19,17 @@ $status = array('state' => 'unknown');
 if(!dockerlab_validate_lab_id($lab_id)){
     $error = '请求的模板 ID 非法。';
 }else{
-    $template = dockerlab_get_template($lab_id);
-    if($template === false){
-        $error = '请求的模板不存在或未通过白名单校验。';
+    $env = dockerlab_check_environment();
+    if(!$env['daemon_reachable']){
+        $error = 'Docker 当前不可用：' . $env['message'];
     }else{
-        $env = dockerlab_check_environment();
-        if(!$env['daemon_reachable']){
-            $error = 'Docker 当前不可用：' . $env['message'];
+        $log_result = dockerlab_get_logs($lab_id, 200);
+        $template = $log_result['template'];
+        $status = $log_result['status'];
+        if(!$log_result['ok']){
+            $error = $log_result['message'];
         }else{
-            $status = dockerlab_get_container_status($template);
-            if($status['state'] === 'not_created'){
-                $error = '当前模板容器尚未运行，暂无日志可读。';
-            }elseif($status['state'] === 'unknown'){
-                $error = '当前无法确认容器状态：' . $status['docker_status'];
-            }else{
-                $result = dockerlab_run_command(array('docker', 'logs', '--tail', '200', $template['container_name']), 10);
-                if($result['ok']){
-                    $combined_output = trim($result['stdout']);
-                    if(trim($result['stderr']) !== ''){
-                        $combined_output = trim($combined_output . ($combined_output !== '' ? "\n" : '') . $result['stderr']);
-                    }
-                    $log_text = $combined_output !== '' ? $combined_output : '[最近 200 行日志为空]';
-                }else{
-                    $error = $result['stderr'] !== '' ? $result['stderr'] : '读取日志失败';
-                }
-            }
+            $log_text = $log_result['logs'] !== '' ? $log_result['logs'] : '[最近 200 行日志为空]';
         }
     }
 }

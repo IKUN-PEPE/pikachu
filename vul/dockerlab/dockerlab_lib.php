@@ -172,6 +172,12 @@ function dockerlab_proc_open_available(){
     return function_exists('proc_open') && !in_array('proc_open', $disabled_list, true);
 }
 
+/**
+ * Phase 1 底层只读 Docker 命令包装。
+ * 页面层不要直接把用户输入传给该函数。
+ * 容器相关操作必须先通过白名单模板解析。
+ * Phase 1 禁止 run / stop / rm / pull / exec / build / compose。
+ */
 function dockerlab_run_command($args, $timeout = 10){
     if(!is_array($args)){
         return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '命令参数必须为数组', 'command' => '');
@@ -379,6 +385,94 @@ function dockerlab_build_entry_url($template){
         return $template['entry_url'];
     }
     return '';
+}
+
+function dockerlab_get_logs($id, $tail = 200){
+    if(!dockerlab_validate_lab_id($id)){
+        return array(
+            'ok' => false,
+            'message' => '请求的模板 ID 非法',
+            'logs' => '',
+            'template' => false,
+            'status' => array('state' => 'unknown'),
+            'command_result' => null
+        );
+    }
+
+    $template = dockerlab_get_template($id);
+    if($template === false){
+        return array(
+            'ok' => false,
+            'message' => '请求的模板不存在或未通过白名单校验',
+            'logs' => '',
+            'template' => false,
+            'status' => array('state' => 'unknown'),
+            'command_result' => null
+        );
+    }
+
+    $tail = (int)$tail;
+    if($tail < 1){
+        $tail = 1;
+    }
+    if($tail > 200){
+        $tail = 200;
+    }
+
+    $status = dockerlab_get_container_status($template);
+    if($status['state'] === 'not_created'){
+        return array(
+            'ok' => false,
+            'message' => '当前模板容器尚未运行',
+            'logs' => '',
+            'template' => $template,
+            'status' => $status,
+            'command_result' => null
+        );
+    }
+    if($status['state'] === 'unknown'){
+        return array(
+            'ok' => false,
+            'message' => '当前无法确认容器状态',
+            'logs' => '',
+            'template' => $template,
+            'status' => $status,
+            'command_result' => null
+        );
+    }
+
+    $command_result = dockerlab_run_command(
+        array('docker', 'logs', '--tail', (string)$tail, $template['container_name']),
+        10
+    );
+
+    $logs = '';
+    if(trim($command_result['stdout']) !== ''){
+        $logs .= trim($command_result['stdout']);
+    }
+    if(trim($command_result['stderr']) !== ''){
+        $logs .= ($logs !== '' ? "\n" : '') . trim($command_result['stderr']);
+    }
+
+    if(!$command_result['ok']){
+        return array(
+            'ok' => false,
+            'message' => $command_result['stderr'] !== '' ? $command_result['stderr'] : '读取日志失败',
+            'logs' => $logs,
+            'template' => $template,
+            'status' => $status,
+            'command_result' => $command_result
+        );
+    }
+
+    return array(
+        'ok' => true,
+        'message' => '',
+        'logs' => $logs,
+        'template' => $template,
+        'status' => $status,
+        'command_result' => $command_result
+    );
 }
 
 function dockerlab_state_text($state){
