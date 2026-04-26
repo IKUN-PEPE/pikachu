@@ -17,7 +17,7 @@ if(isset($_POST['submit'])){
         $account = htmlspecialchars($_POST['account']);
     }
 
-    $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '127.0.0.1';
+    $host_raw = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '127.0.0.1';
 
     $scheme = 'http';
     if(
@@ -28,7 +28,9 @@ if(isset($_POST['submit'])){
     }
 
     $path = rtrim(dirname($_SERVER['PHP_SELF']), '/\\');
-    $reset_link = $scheme . '://' . $host . $path . '/trust.php?token=pikachu-reset';
+    $reset_link_raw = $scheme . '://' . $host_raw . $path . '/trust.php?token=pikachu-reset';
+    $host = htmlspecialchars($host_raw, ENT_QUOTES, 'UTF-8');
+    $reset_link = htmlspecialchars($reset_link_raw, ENT_QUOTES, 'UTF-8');
 
     $html = <<<A
 <div class="host_main">

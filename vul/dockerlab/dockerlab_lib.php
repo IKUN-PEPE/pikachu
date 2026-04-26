@@ -90,8 +90,8 @@ function dockerlab_validate_template($template, &$errors = array()){
             if(!isset($port['container_port']) || !ctype_digit((string)$port['container_port'])){
                 $errors[] = 'ports[' . $index . '].container_port 必须为整数';
             }
-            if(isset($port['protocol']) && $port['protocol'] !== 'tcp'){
-                $errors[] = 'ports[' . $index . '].protocol 仅允许 tcp';
+            if(!isset($port['protocol']) || $port['protocol'] !== 'tcp'){
+                $errors[] = 'ports[' . $index . '].protocol 必须等于 tcp';
             }
         }
     }
