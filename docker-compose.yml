@@ -1,0 +1,43 @@
+services:
+  web:
+    build: .
+    container_name: pikachu-enhanced-web
+    ports:
+      - "127.0.0.1:8765:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PIKACHU_DB_HOST: db
+      PIKACHU_DB_PORT: 3306
+      PIKACHU_DB_NAME: pikachu
+      PIKACHU_DB_USER: root
+      PIKACHU_DB_PASSWORD: root
+    networks:
+      - pikachu-net
+
+  db:
+    image: mysql:8.0
+    container_name: pikachu-enhanced-db
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: pikachu
+    ports:
+      - "127.0.0.1:13306:3306"
+    volumes:
+      - pikachu_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - pikachu-net
+
+networks:
+  pikachu-net:
+    driver: bridge
+
+volumes:
+  pikachu_mysql_data:

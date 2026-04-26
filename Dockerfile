@@ -1,24 +1,25 @@
-FROM mattrayner/lamp:latest-2004-php7
-LABEL maintainer="8023 - i@8023.moe"
-LABEL description="pikachu on php7 with expect @230613"
-COPY . /app/
-RUN apt-get update -y &&\
-    apt-get install -y php7.4-dev php-pear expect tcl-dev tcl-expect-dev &&\
-    ln -s /usr/include/tcl8.6/tcl.h /usr/include/tcl.h &&\
-    ln -s /usr/include/tcl8.6/tclDecls.h /usr/include/tclDecls.h &&\
-    ln -s /usr/include/tcl8.6/expect_tcl.h /usr/include/expect_tcl.h &&\
-    ln -s /usr/include/tcl8.6/tclPlatDecls.h /usr/include/tclPlatDecls.h &&\
-    pecl channel-update pecl.php.net && pecl install expect &&\
-    sed -i '/AllowNoPassword/s/false/true/g' /var/www/phpMyAdmin-5.1.1-all-languages/config.inc.php ;\
-    sed -i '/display_startup_errors/s/Off/On/g' /etc/php/7.4/apache2/php.ini ;\
-    sed -i '/allow_url_include/s/Off/On/g' /etc/php/7.4/apache2/php.ini ;\
-    sed -i '/allow_url_fopen/s/Off/On/g' /etc/php/7.4/apache2/php.ini ;\
-    sed -i '/display_errors/s/Off/On/g' /etc/php/7.4/apache2/php.ini ;\
-    sed -i '$a extension=expect.so' /etc/php/7.4/apache2/php.ini ;\
-    sed -i '/DBPW/s/root//g' /app/pkxss/inc/config.inc.php ;\
-    sed -i '/DBPW/s/root//g' /app/inc/config.inc.php ;\
-    phpenmod expect && \
-    apt-get remove -y php7.4-dev tcl-dev tcl-expect-dev &&\
-    apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+FROM php:8.2-apache
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        default-mysql-client \
+        curl \
+        ca-certificates \
+    && docker-php-ext-install mysqli pdo_mysql \
+    && a2enmod rewrite \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /var/www/html
+
+COPY . /var/www/html
+COPY docker/php/php.ini /usr/local/etc/php/conf.d/pikachu.ini
+COPY docker/apache/000-default.conf /etc/apache2/sites-available/000-default.conf
+COPY docker/entrypoint.sh /usr/local/bin/pikachu-entrypoint
+
+RUN chmod +x /usr/local/bin/pikachu-entrypoint \
+    && chown -R www-data:www-data /var/www/html
+
 EXPOSE 80
-CMD ["/run.sh"]
+
+ENTRYPOINT ["pikachu-entrypoint"]
+CMD ["apache2-foreground"]

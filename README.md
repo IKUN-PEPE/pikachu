@@ -54,7 +54,7 @@
 - [Docker Lab / 靶场编排中心](#-docker-lab--靶场编排中心)
 - [项目架构](#-项目架构)
 - [部署方式一：传统 PHP 环境部署](#-部署方式一传统-php-环境部署)
-- [部署方式二：Docker 运行 Pikachu](#-部署方式二docker-运行-pikachu)
+- [部署方式二：Docker Compose 部署](#-部署方式二docker-compose-部署)
 - [使用说明](#-使用说明)
 - [漏洞模块验证指南](#-漏洞模块验证指南)
 - [Docker Lab 验证指南](#-docker-lab-验证指南)
@@ -490,34 +490,64 @@ http://127.0.0.1/pikachu
 
 ---
 
-## 🐳 部署方式二：Docker 运行 Pikachu
+## 🐳 部署方式二：Docker Compose 部署
 
-### 使用已有镜像
+### 推荐方式
+
+`Pikachu-Enhanced` 当前推荐使用 Docker Compose 启动。
+
+```powershell
+docker compose up -d --build
+```
+
+访问：
+
+```powershell
+http://127.0.0.1:8765
+```
+
+首次访问后进入 `install.php` 页面，点击初始化安装。
+
+### 查看日志
+
+```powershell
+docker compose logs -f web
+docker compose logs -f db
+```
+
+### 停止
+
+```powershell
+docker compose down
+```
+
+### 删除数据卷并重置数据库
+
+```powershell
+docker compose down -v
+```
+
+### MySQL 本地访问
+
+```powershell
+127.0.0.1:13306
+root / root
+```
+
+### 旧版 / 原版镜像方式
+
+以下方式仅作为旧版 / 原版镜像参考，不推荐用于 `Pikachu-Enhanced`：
 
 ```powershell
 docker run -d -p 127.0.0.1:8765:80 8023/pikachu-expect:latest
 ```
 
-访问：
+### 安全提醒
 
-```text
-http://127.0.0.1:8765
-```
-
-### 本地构建
-
-```powershell
-docker build -t pikachu .
-docker run -d -p 127.0.0.1:8080:80 pikachu
-```
-
-访问：
-
-```text
-http://127.0.0.1:8080
-```
-
-> 推荐绑定 `127.0.0.1`，避免漏洞靶场暴露到局域网或公网。
+- 默认只绑定 `127.0.0.1`
+- 不要部署到公网
+- 不挂载 `/var/run/docker.sock`
+- Docker Lab 容器化部署模式下不默认控制宿主 Docker
 
 ---
 
@@ -876,3 +906,4 @@ Pikachu PHP 页面 -> 本地 Controller 服务 -> Docker Engine
 <p align="center">
   <strong>少就是多，慢就是快。</strong>
 </p>
+---

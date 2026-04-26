@@ -1,0 +1,16 @@
+.git
+.github
+.vscode
+.idea
+node_modules
+vendor
+*.7z
+*.zip
+*.rar
+*.tar
+*.gz
+.DS_Store
+Thumbs.db
+*.log
+docker-lab-design.md
+pikachu-dockerlab-implementation-plan.md
