@@ -1,0 +1,24 @@
+{
+  "id": "flask-ssti",
+  "name": "Flask SSTI",
+  "category": "web",
+  "image": "s4yhii/flask-ssti:latest",
+  "container_name": "pikachu-flask-ssti",
+  "labels": {
+    "pikachu.lab": "true",
+    "pikachu.template": "flask-ssti"
+  },
+  "ports": [
+    {
+      "host_ip": "127.0.0.1",
+      "host_port": 15000,
+      "container_port": 5000,
+      "protocol": "tcp"
+    }
+  ],
+  "env": [],
+  "cmd": [],
+  "entry_url": "http://127.0.0.1:15000/",
+  "notes": "演示 Flask SSTI，仅允许本地 127.0.0.1 访问。",
+  "enabled": true
+}

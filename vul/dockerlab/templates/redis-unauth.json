@@ -1,0 +1,28 @@
+{
+  "id": "redis-unauth",
+  "name": "Redis 未授权访问",
+  "category": "database",
+  "image": "redis:7-alpine",
+  "container_name": "pikachu-redis-unauth",
+  "labels": {
+    "pikachu.lab": "true",
+    "pikachu.template": "redis-unauth"
+  },
+  "ports": [
+    {
+      "host_ip": "127.0.0.1",
+      "host_port": 16379,
+      "container_port": 6379,
+      "protocol": "tcp"
+    }
+  ],
+  "env": [],
+  "cmd": [
+    "redis-server",
+    "--protected-mode",
+    "no"
+  ],
+  "entry_url": "",
+  "notes": "演示 Redis 未授权访问，仅允许本地 127.0.0.1 访问。",
+  "enabled": true
+}

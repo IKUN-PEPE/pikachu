@@ -1,0 +1,26 @@
+{
+  "id": "mysql-weak",
+  "name": "MySQL 弱口令",
+  "category": "database",
+  "image": "mysql:8.0",
+  "container_name": "pikachu-mysql-weak",
+  "labels": {
+    "pikachu.lab": "true",
+    "pikachu.template": "mysql-weak"
+  },
+  "ports": [
+    {
+      "host_ip": "127.0.0.1",
+      "host_port": 13306,
+      "container_port": 3306,
+      "protocol": "tcp"
+    }
+  ],
+  "env": [
+    "MYSQL_ROOT_PASSWORD=root"
+  ],
+  "cmd": [],
+  "entry_url": "",
+  "notes": "演示 MySQL 弱口令场景，仅允许本地 127.0.0.1 访问。",
+  "enabled": true
+}

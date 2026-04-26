@@ -1057,6 +1057,44 @@ if (!isset($ACTIVE)){
                 </ul>
             </li>
 
+            <li class="<?php echo isset($ACTIVE[140]) ? $ACTIVE[140] : '';?>">
+                <a href="#" class="dropdown-toggle">
+                    <i class="ace-icon fa fa-cubes"></i>
+                    <span class="menu-text">
+                Docker Lab
+                    </span>
+                    <b class="arrow fa fa-angle-down"></b>
+                </a>
+                <b class="arrow"></b>
+                <ul class="submenu">
+
+                    <li class="<?php echo isset($ACTIVE[141]) ? $ACTIVE[141] : '';?>" >
+                        <a href="<?php echo $PIKA_ROOT_DIR;?>vul/dockerlab/dockerlab.php">
+                            <i class="menu-icon fa fa-caret-right"></i>
+                            概述
+                        </a>
+                        <b class="arrow"></b>
+                    </li>
+
+                    <li class="<?php echo isset($ACTIVE[142]) ? $ACTIVE[142] : '';?>" >
+                        <a href="<?php echo $PIKA_ROOT_DIR;?>vul/dockerlab/dockerlab_check.php">
+                            <i class="menu-icon fa fa-caret-right"></i>
+                            环境检查
+                        </a>
+                        <b class="arrow"></b>
+                    </li>
+
+                    <li class="<?php echo isset($ACTIVE[143]) ? $ACTIVE[143] : '';?>" >
+                        <a href="<?php echo $PIKA_ROOT_DIR;?>vul/dockerlab/dockerlab_center.php">
+                            <i class="menu-icon fa fa-caret-right"></i>
+                            模板列表
+                        </a>
+                        <b class="arrow"></b>
+                    </li>
+
+                </ul>
+            </li>
+
 
         </ul><!-- /.nav-list -->
         <div class="sidebar-toggle sidebar-collapse" id="sidebar-collapse">
