@@ -1,119 +1,116 @@
 <?php
 /**
  * Docker Lab Phase 1 helper functions.
- * Phase 1 is read-only: template loading, environment checks and container status display.
+ * Phase 1 only exposes read-only Docker diagnostics and template status display.
  */
 
-function dockerlab_template_dir(){
-    return __DIR__ . DIRECTORY_SEPARATOR . 'templates';
+function dockerlab_h($value){
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
 }
 
 function dockerlab_html($value){
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    return dockerlab_h($value);
+}
+
+function dockerlab_template_dir(){
+    return __DIR__ . DIRECTORY_SEPARATOR . 'templates';
 }
 
 function dockerlab_validate_lab_id($id){
     return is_string($id) && preg_match('/^[a-z0-9-]+$/', $id) === 1;
 }
 
-function dockerlab_validate_template($template){
-    $allowed_keys = array(
-        'id', 'name', 'category', 'image', 'container_name', 'labels',
-        'ports', 'env', 'cmd', 'entry_url', 'notes', 'enabled'
-    );
+function dockerlab_validate_template($template, &$errors = array()){
+    $errors = array();
+
     if(!is_array($template)){
-        return array('ok' => false, 'error' => '模板不是有效数组');
+        $errors[] = '模板不是有效数组';
+        return false;
     }
 
-    foreach($template as $key => $value){
-        if(!in_array($key, $allowed_keys, true)){
-            return array('ok' => false, 'error' => '模板包含不支持字段: ' . $key);
+    $forbidden_keys = array('volumes', 'privileged', 'network_mode', 'cap_add', 'devices');
+    foreach($forbidden_keys as $key){
+        if(array_key_exists($key, $template)){
+            $errors[] = '模板包含禁止字段: ' . $key;
         }
     }
 
-    $required = array('id', 'name', 'category', 'image', 'container_name', 'labels', 'ports', 'env', 'cmd', 'entry_url', 'notes', 'enabled');
-    foreach($required as $key){
+    $required_keys = array('id', 'name', 'category', 'image', 'container_name', 'labels', 'ports', 'env', 'cmd', 'entry_url', 'notes');
+    foreach($required_keys as $key){
         if(!array_key_exists($key, $template)){
-            return array('ok' => false, 'error' => '模板缺少字段: ' . $key);
+            $errors[] = '模板缺少字段: ' . $key;
         }
     }
 
-    if(!dockerlab_validate_lab_id($template['id'])){
-        return array('ok' => false, 'error' => '模板 id 非法');
+    if(!isset($template['id']) || !dockerlab_validate_lab_id($template['id'])){
+        $errors[] = 'id 必须匹配 ^[a-z0-9-]+$';
     }
 
-    if(!is_string($template['container_name']) || strpos($template['container_name'], 'pikachu-') !== 0){
-        return array('ok' => false, 'error' => 'container_name 必须以 pikachu- 开头');
+    if(!isset($template['name']) || !is_string($template['name']) || trim($template['name']) === ''){
+        $errors[] = 'name 不能为空';
     }
 
-    if(!is_string($template['image']) || trim($template['image']) === ''){
-        return array('ok' => false, 'error' => 'image 不能为空');
+    if(!isset($template['category']) || !is_string($template['category']) || trim($template['category']) === ''){
+        $errors[] = 'category 不能为空';
     }
 
-    if(!is_array($template['labels']) || !isset($template['labels']['pikachu.lab']) || (string)$template['labels']['pikachu.lab'] !== 'true'){
-        return array('ok' => false, 'error' => 'labels.pikachu.lab 必须为 true');
+    if(!isset($template['image']) || !is_string($template['image']) || trim($template['image']) === ''){
+        $errors[] = 'image 不能为空';
     }
 
-    if(!isset($template['labels']['pikachu.template']) || (string)$template['labels']['pikachu.template'] !== (string)$template['id']){
-        return array('ok' => false, 'error' => 'labels.pikachu.template 必须等于模板 id');
+    if(!isset($template['container_name']) || !is_string($template['container_name']) || strpos($template['container_name'], 'pikachu-') !== 0){
+        $errors[] = 'container_name 必须以 pikachu- 开头';
     }
 
-    if(!is_array($template['ports']) || count($template['ports']) < 1){
-        return array('ok' => false, 'error' => 'ports 至少包含一项');
-    }
-
-    foreach($template['ports'] as $port){
-        if(!is_array($port)){
-            return array('ok' => false, 'error' => 'ports 子项格式错误');
+    if(!isset($template['labels']) || !is_array($template['labels'])){
+        $errors[] = 'labels 必须为数组';
+    }else{
+        if(!isset($template['labels']['pikachu.lab']) || (string)$template['labels']['pikachu.lab'] !== 'true'){
+            $errors[] = 'labels.pikachu.lab 必须等于 "true"';
         }
-        $port_required = array('host_ip', 'host_port', 'container_port', 'protocol');
-        foreach($port_required as $key){
-            if(!array_key_exists($key, $port)){
-                return array('ok' => false, 'error' => 'ports 子项缺少字段: ' . $key);
+        if(!isset($template['labels']['pikachu.template']) || (string)$template['labels']['pikachu.template'] !== (string)$template['id']){
+            $errors[] = 'labels.pikachu.template 必须等于模板 id';
+        }
+    }
+
+    if(!isset($template['ports']) || !is_array($template['ports']) || count($template['ports']) < 1){
+        $errors[] = 'ports 必须为非空数组';
+    }else{
+        foreach($template['ports'] as $index => $port){
+            if(!is_array($port)){
+                $errors[] = 'ports[' . $index . '] 不是有效数组';
+                continue;
+            }
+            if(!isset($port['host_ip']) || $port['host_ip'] !== '127.0.0.1'){
+                $errors[] = 'ports[' . $index . '].host_ip 必须等于 127.0.0.1';
+            }
+            if(!isset($port['host_port']) || !ctype_digit((string)$port['host_port'])){
+                $errors[] = 'ports[' . $index . '].host_port 必须为整数';
+            }
+            if(!isset($port['container_port']) || !ctype_digit((string)$port['container_port'])){
+                $errors[] = 'ports[' . $index . '].container_port 必须为整数';
+            }
+            if(isset($port['protocol']) && $port['protocol'] !== 'tcp'){
+                $errors[] = 'ports[' . $index . '].protocol 仅允许 tcp';
             }
         }
-        if($port['host_ip'] !== '127.0.0.1'){
-            return array('ok' => false, 'error' => 'host_ip 只能为 127.0.0.1');
-        }
-        if(!is_int($port['host_port']) && !ctype_digit((string)$port['host_port'])){
-            return array('ok' => false, 'error' => 'host_port 必须为整数');
-        }
-        if(!is_int($port['container_port']) && !ctype_digit((string)$port['container_port'])){
-            return array('ok' => false, 'error' => 'container_port 必须为整数');
-        }
-        if((int)$port['host_port'] < 1 || (int)$port['host_port'] > 65535){
-            return array('ok' => false, 'error' => 'host_port 超出范围');
-        }
-        if((int)$port['host_port'] < 1024){
-            return array('ok' => false, 'error' => 'host_port 必须 >= 1024');
-        }
-        if((int)$port['container_port'] < 1 || (int)$port['container_port'] > 65535){
-            return array('ok' => false, 'error' => 'container_port 超出范围');
-        }
-        if($port['protocol'] !== 'tcp'){
-            return array('ok' => false, 'error' => 'protocol 仅允许 tcp');
+    }
+
+    if(isset($template['env']) && !is_array($template['env'])){
+        $errors[] = 'env 必须为数组';
+    }
+
+    if(isset($template['cmd']) && !is_array($template['cmd'])){
+        $errors[] = 'cmd 必须为数组';
+    }
+
+    if(isset($template['entry_url']) && $template['entry_url'] !== ''){
+        if(!is_string($template['entry_url']) || strpos($template['entry_url'], 'http://127.0.0.1') !== 0){
+            $errors[] = 'entry_url 仅允许 http://127.0.0.1 本地入口';
         }
     }
 
-    if(!is_array($template['env']) || !is_array($template['cmd'])){
-        return array('ok' => false, 'error' => 'env/cmd 必须为数组');
-    }
-
-    if(!is_bool($template['enabled'])){
-        return array('ok' => false, 'error' => 'enabled 必须为布尔值');
-    }
-
-    if(!is_string($template['entry_url'])){
-        return array('ok' => false, 'error' => 'entry_url 必须为字符串');
-    }
-    if($template['entry_url'] !== ''){
-        // Only allow local entry links in Phase 1.
-        if(strpos($template['entry_url'], 'http://127.0.0.1') !== 0 && strpos($template['entry_url'], 'https://127.0.0.1') !== 0){
-            return array('ok' => false, 'error' => 'entry_url 仅允许 127.0.0.1 本地地址');
-        }
-    }
-
-    return array('ok' => true);
+    return count($errors) === 0;
 }
 
 function dockerlab_load_templates(){
@@ -137,11 +134,8 @@ function dockerlab_load_templates(){
         if(!is_array($template)){
             continue;
         }
-        $validation = dockerlab_validate_template($template);
-        if(!$validation['ok']){
-            continue;
-        }
-        if(!$template['enabled']){
+        $errors = array();
+        if(!dockerlab_validate_template($template, $errors)){
             continue;
         }
         $templates[$template['id']] = $template;
@@ -159,25 +153,42 @@ function dockerlab_get_template($id){
     return isset($templates[$id]) ? $templates[$id] : false;
 }
 
-function dockerlab_run_command($args, $timeout = 30){
-    if(!is_array($args) || count($args) < 1){
-        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '命令参数无效');
+function dockerlab_exec_available(){
+    $disabled = (string)ini_get('disable_functions');
+    $disabled_list = array_filter(array_map('trim', explode(',', $disabled)));
+    return function_exists('exec') && !in_array('exec', $disabled_list, true);
+}
+
+function dockerlab_proc_open_available(){
+    $disabled = (string)ini_get('disable_functions');
+    $disabled_list = array_filter(array_map('trim', explode(',', $disabled)));
+    return function_exists('proc_open') && !in_array('proc_open', $disabled_list, true);
+}
+
+function dockerlab_run_command($args, $timeout = 10){
+    if(!is_array($args)){
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '命令参数必须为数组', 'command' => '');
+    }
+    if(count($args) < 2){
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '命令参数不足', 'command' => '');
+    }
+    if($args[0] !== 'docker'){
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '只允许固定 docker 命令', 'command' => '');
     }
 
-    $command = array_shift($args);
-    if($command !== 'docker'){
-        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => 'Phase 1 只允许固定 docker 命令');
+    $subcommand = (string)$args[1];
+    $allowed = array('--version', 'version', 'info', 'ps', 'inspect', 'logs');
+    if(!in_array($subcommand, $allowed, true)){
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '只允许只读 docker 子命令', 'command' => '');
     }
 
-    // Phase 1 only: allow read-only subcommands.
-    $subcommand = isset($args[0]) ? (string)$args[0] : '';
-    if(!in_array($subcommand, array('version', 'ps'), true)){
-        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => 'Phase 1 仅允许 docker version / docker ps');
+    if(!dockerlab_proc_open_available()){
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '当前 PHP 环境不可用 proc_open，无法执行只读 Docker 检查', 'command' => '');
     }
 
-    $parts = array($command);
-    foreach($args as $arg){
-        $parts[] = escapeshellarg((string)$arg);
+    $parts = array('docker');
+    for($i = 1; $i < count($args); $i++){
+        $parts[] = escapeshellarg((string)$args[$i]);
     }
     $cmd = implode(' ', $parts);
 
@@ -189,7 +200,7 @@ function dockerlab_run_command($args, $timeout = 30){
 
     $process = @proc_open($cmd, $descriptorspec, $pipes, null, null);
     if(!is_resource($process)){
-        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '无法启动命令进程');
+        return array('ok' => false, 'exit_code' => 1, 'stdout' => '', 'stderr' => '无法启动命令进程', 'command' => $cmd);
     }
 
     fclose($pipes[0]);
@@ -198,7 +209,7 @@ function dockerlab_run_command($args, $timeout = 30){
 
     $stdout = '';
     $stderr = '';
-    $start = time();
+    $start = microtime(true);
     $timed_out = false;
 
     do{
@@ -208,7 +219,7 @@ function dockerlab_run_command($args, $timeout = 30){
         if(!$status['running']){
             break;
         }
-        if((time() - $start) >= (int)$timeout){
+        if((microtime(true) - $start) >= (int)$timeout){
             $timed_out = true;
             proc_terminate($process);
             break;
@@ -220,64 +231,91 @@ function dockerlab_run_command($args, $timeout = 30){
     $stderr .= stream_get_contents($pipes[2]);
     fclose($pipes[1]);
     fclose($pipes[2]);
-
     $exit_code = proc_close($process);
+
     if($timed_out){
-        return array('ok' => false, 'exit_code' => 124, 'stdout' => trim($stdout), 'stderr' => '命令执行超时');
+        return array('ok' => false, 'exit_code' => 124, 'stdout' => trim($stdout), 'stderr' => '命令执行超时', 'command' => $cmd);
     }
 
     return array(
         'ok' => ($exit_code === 0),
         'exit_code' => $exit_code,
         'stdout' => trim($stdout),
-        'stderr' => trim($stderr)
+        'stderr' => trim($stderr),
+        'command' => $cmd
     );
-}
-
-function dockerlab_docker_available(){
-    $result = dockerlab_run_command(array('docker', 'version', '--format', '{{.Client.Version}}'), 10);
-    return $result['ok'];
 }
 
 function dockerlab_check_environment(){
     $result = array(
+        'os' => PHP_OS_FAMILY . ' / ' . PHP_OS,
+        'exec_available' => dockerlab_exec_available(),
+        'proc_open_available' => dockerlab_proc_open_available(),
         'docker_found' => false,
         'docker_version_ok' => false,
         'daemon_reachable' => false,
-        'client_version' => '',
-        'server_version' => '',
+        'docker_version' => '',
+        'docker_info' => '',
         'message' => ''
     );
 
-    $version_client = dockerlab_run_command(array('docker', 'version', '--format', '{{.Client.Version}}'), 10);
-    if(!$version_client['ok']){
-        $result['message'] = $version_client['stderr'] !== '' ? $version_client['stderr'] : '未检测到可用的 docker 命令';
+    $version = dockerlab_run_command(array('docker', '--version'), 10);
+    if(!$version['ok']){
+        $result['message'] = $version['stderr'] !== '' ? $version['stderr'] : '未检测到可用的 Docker CLI';
         return $result;
     }
 
     $result['docker_found'] = true;
     $result['docker_version_ok'] = true;
-    $result['client_version'] = $version_client['stdout'];
+    $result['docker_version'] = $version['stdout'];
 
-    $version_server = dockerlab_run_command(array('docker', 'version', '--format', '{{.Server.Version}}'), 10);
-    if($version_server['ok']){
-        $result['daemon_reachable'] = true;
-        $result['server_version'] = $version_server['stdout'];
-        $result['message'] = 'Docker Desktop 运行正常';
+    $info = dockerlab_run_command(array('docker', 'info', '--format', '{{.OperatingSystem}} | {{.OSType}} | {{.Architecture}}'), 10);
+    if(!$info['ok']){
+        $result['message'] = $info['stderr'] !== '' ? $info['stderr'] : 'Docker daemon 不可达';
         return $result;
     }
 
-    $result['message'] = $version_server['stderr'] !== '' ? $version_server['stderr'] : 'Docker daemon 不可达';
+    $result['daemon_reachable'] = true;
+    $result['docker_info'] = $info['stdout'];
+    $result['message'] = 'Docker 环境可用（只读检测）';
     return $result;
+}
+
+function dockerlab_list_lab_containers(){
+    $result = dockerlab_run_command(array(
+        'docker', 'ps', '-a',
+        '--filter', 'label=pikachu.lab=true',
+        '--format', '{{.Names}}|{{.Status}}|{{.Ports}}|{{.Labels}}'
+    ), 10);
+
+    if(!$result['ok']){
+        return array();
+    }
+
+    $items = array();
+    $lines = preg_split('/\r\n|\r|\n/', $result['stdout']);
+    foreach($lines as $line){
+        $line = trim($line);
+        if($line === ''){
+            continue;
+        }
+        $parts = explode('|', $line, 4);
+        $items[] = array(
+            'name' => isset($parts[0]) ? $parts[0] : '',
+            'status' => isset($parts[1]) ? $parts[1] : '',
+            'ports' => isset($parts[2]) ? $parts[2] : '',
+            'labels' => isset($parts[3]) ? $parts[3] : ''
+        );
+    }
+    return $items;
 }
 
 function dockerlab_get_container_status($template){
     $status = array(
         'state' => 'unknown',
-        'container_name' => isset($template['container_name']) ? $template['container_name'] : '',
         'docker_status' => '',
         'ports' => '',
-        'label_ok' => false
+        'container_name' => isset($template['container_name']) ? $template['container_name'] : ''
     );
 
     if(!is_array($template) || !isset($template['container_name'])){
@@ -285,65 +323,55 @@ function dockerlab_get_container_status($template){
         return $status;
     }
 
-    // Note: docker name filter is substring match, not a strict regex. We filter by name substring
-    // then select the exact name in PHP to avoid false negatives.
-    $result = dockerlab_run_command(array(
-        'docker', 'ps', '-a',
-        '--filter', 'label=pikachu.lab=true',
-        '--filter', 'name=' . $template['container_name'],
-        '--format', '{{.Names}}|{{.Status}}|{{.Ports}}|{{.Labels}}'
-    ), 10);
-
-    if(!$result['ok']){
-        $status['state'] = 'docker_unavailable';
-        $status['docker_status'] = $result['stderr'];
-        return $status;
+    $containers = dockerlab_list_lab_containers();
+    if(count($containers) === 0){
+        $env = dockerlab_check_environment();
+        if(!$env['daemon_reachable']){
+            $status['state'] = 'unknown';
+            $status['docker_status'] = $env['message'];
+            return $status;
+        }
     }
 
-    if($result['stdout'] === ''){
-        $status['state'] = 'not_created';
-        return $status;
-    }
-
-    $lines = preg_split('/\r\n|\r|\n/', $result['stdout']);
-    $line = '';
-    foreach($lines as $candidate){
-        $candidate = trim($candidate);
-        if($candidate === ''){
+    foreach($containers as $item){
+        if($item['name'] !== $template['container_name']){
             continue;
         }
-        $parts0 = explode('|', $candidate, 2);
-        $name0 = isset($parts0[0]) ? $parts0[0] : '';
-        if($name0 === $template['container_name']){
-            $line = $candidate;
-            break;
+        $status['docker_status'] = $item['status'];
+        $status['ports'] = $item['ports'];
+        if(stripos($item['status'], 'Up ') === 0){
+            $status['state'] = 'running';
+        }elseif(stripos($item['status'], 'Exited') === 0){
+            $status['state'] = 'stopped';
+        }elseif(stripos($item['status'], 'Created') === 0){
+            $status['state'] = 'created';
+        }else{
+            $status['state'] = 'present';
         }
-    }
-
-    if($line === ''){
-        $status['state'] = 'not_created';
         return $status;
     }
 
-    $parts = explode('|', $line, 4);
-    $status['docker_status'] = isset($parts[1]) ? $parts[1] : '';
-    $status['ports'] = isset($parts[2]) ? $parts[2] : '';
-    $labels = isset($parts[3]) ? $parts[3] : '';
-    $status['label_ok'] = strpos($labels, 'pikachu.lab=true') !== false;
+    $status['state'] = 'not_created';
+    return $status;
+}
 
-    if(!$status['label_ok']){
-        $status['state'] = 'label_mismatch';
-    }elseif(stripos($status['docker_status'], 'Up ') === 0){
-        $status['state'] = 'running';
-    }elseif(stripos($status['docker_status'], 'Exited') === 0){
-        $status['state'] = 'stopped';
-    }elseif(stripos($status['docker_status'], 'Created') === 0){
-        $status['state'] = 'created';
-    }else{
-        $status['state'] = 'present';
+function dockerlab_build_port_text($template){
+    if(!isset($template['ports']) || !is_array($template['ports']) || count($template['ports']) < 1){
+        return '无端口配置';
     }
 
-    return $status;
+    $items = array();
+    foreach($template['ports'] as $port){
+        $items[] = $port['host_ip'] . ':' . $port['host_port'] . ' -> ' . $port['container_port'] . '/' . $port['protocol'];
+    }
+    return implode(', ', $items);
+}
+
+function dockerlab_build_entry_url($template){
+    if(isset($template['entry_url']) && is_string($template['entry_url']) && $template['entry_url'] !== ''){
+        return $template['entry_url'];
+    }
+    return '';
 }
 
 function dockerlab_state_text($state){
@@ -352,11 +380,9 @@ function dockerlab_state_text($state){
         'stopped' => '已停止',
         'created' => '已创建',
         'present' => '已存在',
-        'not_created' => '未创建',
-        'docker_unavailable' => 'Docker 不可用',
-        'label_mismatch' => '标签不匹配',
-        'error' => '状态异常',
-        'unknown' => '未知'
+        'not_created' => '未运行',
+        'unknown' => '未知',
+        'error' => '状态异常'
     );
     return isset($map[$state]) ? $map[$state] : '未知';
 }

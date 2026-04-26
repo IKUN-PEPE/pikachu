@@ -17,7 +17,8 @@
     }
   ],
   "env": [
-    "MYSQL_ROOT_PASSWORD=root"
+    "MYSQL_ROOT_PASSWORD=root",
+    "MYSQL_DATABASE=pikachu_lab"
   ],
   "cmd": [],
   "entry_url": "",

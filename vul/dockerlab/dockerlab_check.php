@@ -36,6 +36,18 @@ include_once $PIKA_ROOT_DIR . 'header.php';
                         <td>结果</td>
                     </tr>
                     <tr>
+                        <td>PHP OS</td>
+                        <td><?php echo dockerlab_h($env['os']); ?></td>
+                    </tr>
+                    <tr>
+                        <td>exec 可用</td>
+                        <td><?php echo dockerlab_h($env['exec_available'] ? '是' : '否'); ?></td>
+                    </tr>
+                    <tr>
+                        <td>proc_open 可用</td>
+                        <td><?php echo dockerlab_h($env['proc_open_available'] ? '是' : '否'); ?></td>
+                    </tr>
+                    <tr>
                         <td>docker 命令可用</td>
                         <td><?php echo dockerlab_html($env['docker_found'] ? '是' : '否'); ?></td>
                     </tr>
@@ -48,19 +60,25 @@ include_once $PIKA_ROOT_DIR . 'header.php';
                         <td><?php echo dockerlab_html($env['daemon_reachable'] ? '是' : '否'); ?></td>
                     </tr>
                     <tr>
-                        <td>Client Version</td>
-                        <td><?php echo dockerlab_html($env['client_version']); ?></td>
+                        <td>docker version 摘要</td>
+                        <td><?php echo dockerlab_h($env['docker_version']); ?></td>
                     </tr>
                     <tr>
-                        <td>Server Version</td>
-                        <td><?php echo dockerlab_html($env['server_version']); ?></td>
+                        <td>Docker Info（简要）</td>
+                        <td><?php echo dockerlab_html($env['docker_info']); ?></td>
                     </tr>
                     <tr>
                         <td>说明</td>
                         <td><?php echo dockerlab_html($env['message']); ?></td>
                     </tr>
                 </table>
-                <p class="notice">如果 daemon 不可达，请先确认 Docker Desktop 已启动，并且当前用户可以执行 <code>docker version</code> 与 <code>docker info</code>。</p>
+                <p class="notice">常见问题与排查（Windows / PowerShell）：</p>
+<pre style="width:100%;">
+docker version
+docker info
+docker ps -a --filter "label=pikachu.lab=true"
+</pre>
+                <p class="notice">如果显示 daemon 不可达：请确认 Docker Desktop 已启动，并等待其初始化完成；如有权限问题，请用同一用户在 PowerShell 中直接执行上面的命令查看报错。</p>
                 <p><a href="dockerlab_center.php">查看模板列表</a></p>
             </div>
         </div><!-- /.page-content -->

@@ -1,281 +1,662 @@
-# 📋 Pikachu Docker Lab / 靶场编排中心设计文档
+# 📋 Pikachu Docker Lab / 靶场编排中心实施级设计文档
 
 - 📊 报告类型：技术方案报告
 - 👤 适用项目：Pikachu（PHP + MySQL 漏洞练习平台）
 - 🕐 编写时间：2026-04-26
-- 🏷️ 当前状态：设计完成，未修改源码
-- 📎 设计边界：Windows / PowerShell、Docker Desktop for Windows、白名单模板、单机本地编排
+- 🏷️ 当前状态：实施级设计完成，未修改源码
+- 📎 设计边界：Windows / PowerShell、Docker Desktop for Windows、PHP 受控调用 Docker CLI、静态白名单模板、单机本地编排
 
 ## 1. 📊 方案摘要
 
-本方案建议将 Docker Lab 作为 Pikachu 的一个新增独立模块接入，目录位于 `vul/dockerlab/`，继续沿用现有“模块独立页面 + header 菜单接入”的模式，不做全站重构。第一版采用“静态模板白名单 + PHP 受控调用 Docker CLI”的方式落地，只允许查看模板、启动、停止、删除、查看日志和打开本地访问入口。
+本设计将 Docker Lab 落地为 Pikachu 的新增独立模块，目录位于 `vul/dockerlab/`。第一版不引入数据库表，不引入独立 Controller 服务，不开放任意 Docker 参数，只允许用户在页面中管理白名单模板对应的本地容器。
 
-核心原则如下：
+第一版 MVP 仅保留 3 个模板：
 
-- 只允许平台内置模板，不允许用户自定义 `image`、`command`、`volume`、`privileged`
-- 所有容器名统一以 `pikachu-` 开头
-- 所有容器统一加 `pikachu.lab=true` label
-- 默认端口仅绑定 `127.0.0.1`
-- 不挂载敏感宿主目录，不挂载 `/var/run/docker.sock`
-- 第一版不新增数据库表，不自动 commit
+- `redis-unauth`
+- `mysql-weak`
+- `flask-ssti`
+
+平台只允许以下动作：
+
+- 查看模板
+- 检查 Docker 环境
+- 启动
+- 停止
+- 重启
+- 删除
+- 查看最近日志
+- 打开本地访问入口
 
 ```mermaid
 flowchart TD
-    A([用户进入 Docker Lab]) --> B[读取本地白名单模板]
-    B --> C[展示模板列表与容器状态]
-    C --> D{用户动作}
-    D -->|启动| E[校验模板与固定参数]
-    D -->|停止/删除/日志| E
-    E --> F[调用受控 Docker CLI 包装层]
-    F --> G[强制前缀 label 端口 127.0.0.1]
-    G --> H[执行 docker 命令]
-    H --> I([返回结果与本地访问入口])
+    A([用户进入 Docker Lab]) --> B[加载 templates/*.json]
+    B --> C[校验模板字段与白名单]
+    C --> D[展示环境状态与模板状态]
+    D --> E{用户 POST 动作}
+    E -->|start/stop/remove/restart| F[校验 CSRF Token 与 lab_id]
+    F --> G[按模板构造固定 Docker 参数]
+    G --> H[调用 docker CLI]
+    H --> I[仅操作带 pikachu.lab=true 的容器]
+    I --> J([返回结果并刷新页面])
 ```
 
 ## 2. 🔍 当前源码结构适配分析
 
-### 2.1 现有结构
+### 2.1 现有结构判断
 
-- 根目录负责公共入口与布局：`index.php`、`header.php`、`footer.php`、`install.php`
-- 公共配置与函数位于 `inc/`
-- 漏洞模块按目录位于 `vul/`
-- 新模块通过 `header.php` 菜单索引接入
-- 页面逻辑以单文件 PHP 为主，没有现成的 Service / Controller 分层
+Pikachu 当前是典型的“单体 PHP 页面 + 公共头尾 + 模块目录”结构：
 
-### 2.2 适配判断
+- 根目录：`index.php`、`header.php`、`footer.php`、`install.php`
+- 公共配置：`inc/config.inc.php`、`inc/mysql.inc.php`、`inc/function.php`
+- 模块目录：`vul/<module>/`
+- 菜单入口：集中在 `header.php`
 
-当前代码结构适合新增一个独立模块，不适合第一版就引入复杂的后台服务编排平台。最稳妥的方式是：
+### 2.2 对 Docker Lab 的直接影响
 
-- 新增 `vul/dockerlab/`
-- 新增最少量辅助函数
-- 继续使用现有页面骨架和样式
-- 将 Docker 模板定义存放为本地文件
+- 适合按 `vul/dockerlab/` 形式新增模块
+- 适合新增少量本地库文件，不适合大规模分层重构
+- 适合继续使用同步表单提交和结果回显
+- 不适合第一版引入异步任务、消息队列、数据库状态表或独立编排服务
 
-## 3. 🏗️ 推荐模块名称、目录与页面结构
+### 2.3 结论
 
-### 3.1 模块名称
+最稳妥的落地方式是：
 
-- 中文展示名：`Docker Lab`
-- 目录名：`dockerlab`
+1. 新增 `vul/dockerlab/` 目录
+2. 使用静态 JSON 模板作为白名单配置源
+3. 使用 `dockerlab_lib.php` 封装受控命令
+4. 所有状态变更动作走 `dockerlab_action.php` 的 POST 请求
 
-### 3.2 推荐目录结构
+## 3. 🏗️ MVP 范围与完整目录结构
 
-```text
-vul/
-  dockerlab/
-    dockerlab.php
-    dockerlab_center.php
-    dockerlab_logs.php
-    templates/
-      mysql-weak.json
-      postgres-weak.json
-      redis-unauth.json
-      nginx-misconfig.json
-      tomcat-weak.json
-      flask-ssti.json
-      flask-debug.json
-      spring-actuator.json
-      fastapi-docs.json
-      node-proto-pollution.json
-```
+### 3.1 MVP 范围收敛
 
-### 3.3 推荐页面结构
+第一版只支持 3 个实验环境：
 
-1. `dockerlab.php`
-   - 模块概述
-   - 使用前提
-   - 安全限制
-   - 进入编排中心入口
-2. `dockerlab_center.php`
-   - Docker 可用性状态
-   - 模板列表
-   - 运行状态
-   - 操作按钮：启动 / 停止 / 删除 / 日志 / 打开
-3. `dockerlab_logs.php`
-   - 只读展示指定容器最近日志
-
-## 4. ⚙️ 数据存储与操作方式
-
-### 4.1 是否新增数据库表
-
-第一版不建议新增数据库表。
-
-理由：
-
-- 模板定义是固定白名单，适合直接放文件
-- 运行状态应以 `docker ps -a` 实时结果为准
-- 可避免修改 `install.php` 和数据库初始化逻辑
-
-### 4.2 Docker 操作方式对比
-
-| 方案 | 优点 | 缺点 | 结论 |
-|---|---|---|---|
-| PHP 直接调用 Docker CLI | 接入快，贴合当前结构，无额外服务 | 权限边界更敏感，需要严格参数封死 | 推荐 MVP |
-| 独立本地 Controller 服务 | 隔离更清晰，后续扩展更好 | 引入新进程与部署复杂度 | 后续阶段再考虑 |
-
-### 4.3 推荐 MVP 方案
-
-第一版使用 PHP 调用受控 Docker CLI，且只开放固定动作集合：
-
-- 查看模板
-- 启动容器
-- 停止容器
-- 删除容器
-- 查看最近日志
-- 打开本地访问链接
-
-## 5. 🗂️ 模板格式与首批清单
-
-### 5.1 推荐模板格式
-
-第一版建议使用 JSON，不建议直接使用 `docker-compose.yml` 作为前端配置源。JSON 更容易在 PHP 中做字段白名单校验。
-
-示例：
-
-```json
-{
-  "id": "redis-unauth",
-  "name": "Redis 未授权",
-  "image": "redis:7-alpine",
-  "container_name": "pikachu-redis-unauth",
-  "labels": {
-    "pikachu.lab": "true",
-    "pikachu.template": "redis-unauth"
-  },
-  "ports": [
-    {
-      "host_ip": "127.0.0.1",
-      "host_port": 16379,
-      "container_port": 6379,
-      "protocol": "tcp"
-    }
-  ],
-  "env": [],
-  "cmd": [],
-  "entry_url": "",
-  "notes": "演示 Redis 未授权访问。"
-}
-```
-
-### 5.2 第一批模板清单
-
-- `mysql-weak`
-- `postgres-weak`
 - `redis-unauth`
+- `mysql-weak`
+- `flask-ssti`
+
+以下模板推迟到第二批扩展：
+
+- `postgres-weak`
 - `nginx-misconfig`
 - `tomcat-weak`
-- `flask-ssti`
 - `flask-debug`
 - `spring-actuator`
 - `fastapi-docs`
 - `node-proto-pollution`
 
-MVP 建议先落地 6 个：
+### 3.2 完整目录结构
 
-- `mysql-weak`
-- `postgres-weak`
-- `redis-unauth`
-- `flask-ssti`
-- `flask-debug`
-- `fastapi-docs`
+```text
+vul/dockerlab/
+├── dockerlab.php
+├── dockerlab_center.php
+├── dockerlab_action.php
+├── dockerlab_logs.php
+├── dockerlab_check.php
+├── dockerlab_lib.php
+└── templates/
+    ├── redis-unauth.json
+    ├── mysql-weak.json
+    └── flask-ssti.json
+```
 
-## 6. 🔐 安全限制与风险控制
+### 3.3 目录职责
 
-### 6.1 强制限制
+| 路径 | 职责 |
+|---|---|
+| `dockerlab.php` | 模块概述、使用说明、安全边界 |
+| `dockerlab_center.php` | 模板列表、状态展示、操作入口 |
+| `dockerlab_action.php` | 仅处理 POST 状态变更动作 |
+| `dockerlab_logs.php` | 查看指定模板对应容器最近日志 |
+| `dockerlab_check.php` | 展示 Docker 环境检查详情 |
+| `dockerlab_lib.php` | 模板、状态、命令、校验的公共函数 |
+| `templates/*.json` | 白名单模板定义 |
 
-- 容器名必须以 `pikachu-` 开头
-- 容器必须带 `pikachu.lab=true`
-- 端口只能绑定 `127.0.0.1`
-- 只允许白名单模板
-- 不允许自定义 image、command、volume、privileged
-- 不允许挂载宿主敏感目录
-- 不允许挂载 `/var/run/docker.sock`
-- 仅允许操作带目标 label 的容器
+## 4. 🛠️ dockerlab_lib.php 函数设计
 
-### 6.2 主要风险
+### 4.1 函数清单
 
-- Docker CLI 参数注入
-- 错误端口暴露到外网
-- 容器挂载宿主目录导致越权
-- 日志输出过大拖慢页面
-- Web 进程拥有过高 Docker 控制权限
+必须包含以下函数：
 
-### 6.3 控制措施
+- `dockerlab_load_templates()`
+- `dockerlab_get_template($id)`
+- `dockerlab_validate_lab_id($id)`
+- `dockerlab_validate_template($template)`
+- `dockerlab_build_run_command($template)`
+- `dockerlab_run_command($args, $timeout = 30)`
+- `dockerlab_get_container_status($template)`
+- `dockerlab_start_lab($id)`
+- `dockerlab_stop_lab($id)`
+- `dockerlab_remove_lab($id)`
+- `dockerlab_get_logs($id, $tail = 200)`
+- `dockerlab_check_environment()`
 
-- 所有 Docker 参数由服务端固定拼装
-- 模板字段严格校验
-- 日志默认只显示最近 200 行
-- 启动 / 删除动作增加确认
-- 所有查询统一加 label 过滤
+### 4.2 函数职责定义
 
-## 7. 🧪 Windows PowerShell 验证命令
+#### 4.2.1 `dockerlab_load_templates()`
+
+职责：
+
+- 读取 `templates/*.json`
+- 逐个 JSON 解析
+- 调用 `dockerlab_validate_template()`
+- 返回以 `id` 为键的模板数组
+
+返回建议：
+
+```php
+array(
+    'redis-unauth' => array(...),
+    'mysql-weak' => array(...),
+    'flask-ssti' => array(...)
+)
+```
+
+#### 4.2.2 `dockerlab_get_template($id)`
+
+职责：
+
+- 先校验 `lab_id`
+- 从 `dockerlab_load_templates()` 中返回对应模板
+- 不存在则返回 `false`
+
+#### 4.2.3 `dockerlab_validate_lab_id($id)`
+
+职责：
+
+- 校验 `lab_id` 是否匹配 `^[a-z0-9-]+$`
+- 严格限制为小写字母、数字、连字符
+
+返回：
+
+- `true` / `false`
+
+#### 4.2.4 `dockerlab_validate_template($template)`
+
+职责：
+
+- 校验模板字段完整性
+- 校验字段类型和值域
+- 拒绝不支持字段
+- 拒绝危险配置
+
+校验失败时：
+
+- 返回 `array('ok' => false, 'error' => '...')`
+
+成功时：
+
+- 返回 `array('ok' => true)`
+
+#### 4.2.5 `dockerlab_build_run_command($template)`
+
+职责：
+
+- 根据模板构造固定的 `docker run` 参数数组
+- 不接收用户自定义覆盖
+- 强制包含 label、container name、127.0.0.1 端口绑定
+
+返回示例：
+
+```php
+array(
+    'docker', 'run', '-d',
+    '--name', 'pikachu-redis-unauth',
+    '--label', 'pikachu.lab=true',
+    '--label', 'pikachu.template=redis-unauth',
+    '-p', '127.0.0.1:16379:6379',
+    'redis:7-alpine'
+)
+```
+
+#### 4.2.6 `dockerlab_run_command($args, $timeout = 30)`
+
+职责：
+
+- 用受控方式执行 Docker CLI
+- 超时控制
+- 捕获 stdout / stderr / exit code
+- 统一返回结构化结果
+
+返回建议：
+
+```php
+array(
+    'ok' => true,
+    'exit_code' => 0,
+    'stdout' => '...',
+    'stderr' => ''
+)
+```
+
+#### 4.2.7 `dockerlab_get_container_status($template)`
+
+职责：
+
+- 基于模板中的 `container_name` 查询状态
+- 只允许查询带 `pikachu.lab=true` label 的容器
+
+建议状态枚举：
+
+- `not_created`
+- `running`
+- `exited`
+- `error`
+
+#### 4.2.8 `dockerlab_start_lab($id)`
+
+职责：
+
+- 获取模板
+- 检查现有容器状态
+- 不存在则执行 `docker run`
+- 已存在但停止则执行 `docker start`
+- 统一返回结果
+
+#### 4.2.9 `dockerlab_stop_lab($id)`
+
+职责：
+
+- 仅停止目标模板对应且带目标 label 的容器
+
+#### 4.2.10 `dockerlab_remove_lab($id)`
+
+职责：
+
+- 仅删除目标模板对应且带目标 label 的容器
+- 推荐内部使用 `docker rm -f`
+
+#### 4.2.11 `dockerlab_get_logs($id, $tail = 200)`
+
+职责：
+
+- `tail` 上限固定为 `200`
+- 只允许查询白名单模板对应容器
+- 只允许读取目标 label 容器日志
+
+#### 4.2.12 `dockerlab_check_environment()`
+
+职责：
+
+- 检查 `docker` 命令是否存在
+- 检查 Docker Desktop / Engine 是否运行
+- 检查当前用户是否可执行 Docker CLI
+
+返回建议：
+
+```php
+array(
+    'docker_found' => true,
+    'docker_version_ok' => true,
+    'daemon_reachable' => true,
+    'message' => 'Docker Desktop is running'
+)
+```
+
+## 5. 🔄 dockerlab_action.php POST 动作设计
+
+### 5.1 允许动作
+
+`dockerlab_action.php` 只允许以下动作：
+
+- `start`
+- `stop`
+- `remove`
+- `restart`
+
+### 5.2 请求方式
+
+所有状态改变操作必须是 `POST`：
+
+- 禁止通过 `GET` 启动、停止、删除、重启容器
+
+### 5.3 必须校验项
+
+1. 校验请求方法必须为 `POST`
+2. 校验 CSRF Token
+3. 校验 `lab_id` 匹配 `^[a-z0-9-]+$`
+4. 校验 `lab_id` 必须存在于 `templates`
+5. 校验 `action` 必须在白名单中
+
+### 5.4 明确拒绝的输入
+
+以下字段即使用户提交，也必须忽略或拒绝：
+
+- `image`
+- `command`
+- `cmd`
+- `volume`
+- `mount`
+- `env`
+- `port`
+- `container_name`
+- `network`
+- `privileged`
+- `cap_add`
+- `device`
+
+### 5.5 动作处理逻辑
+
+| action | 内部调用 |
+|---|---|
+| `start` | `dockerlab_start_lab($id)` |
+| `stop` | `dockerlab_stop_lab($id)` |
+| `remove` | `dockerlab_remove_lab($id)` |
+| `restart` | 先 `dockerlab_stop_lab($id)`，再 `dockerlab_start_lab($id)` |
+
+## 6. 🗂️ JSON 模板 Schema 与校验规则
+
+### 6.1 允许字段
+
+- `id`
+- `name`
+- `category`
+- `image`
+- `container_name`
+- `labels`
+- `ports`
+- `env`
+- `cmd`
+- `entry_url`
+- `notes`
+- `enabled`
+
+### 6.2 字段定义
+
+| 字段 | 类型 | 规则 |
+|---|---|---|
+| `id` | string | 必填，匹配 `^[a-z0-9-]+$` |
+| `name` | string | 必填，显示名称 |
+| `category` | string | 必填，建议如 `database`、`middleware`、`web` |
+| `image` | string | 必填，只能来自模板，用户不可改 |
+| `container_name` | string | 必填，必须以 `pikachu-` 开头 |
+| `labels` | object | 必填，必须包含 `pikachu.lab=true` |
+| `ports` | array | 必填，至少 1 项 |
+| `env` | array | 可为空，格式为 `KEY=VALUE` |
+| `cmd` | array | 可为空，仅来自模板 |
+| `entry_url` | string | 可为空，用于 UI “打开” |
+| `notes` | string | 可为空，用于教学说明 |
+| `enabled` | bool | 必填，控制模板是否在 UI 展示 |
+
+### 6.3 `ports` 子项规则
+
+每一项必须包含：
+
+- `host_ip`
+- `host_port`
+- `container_port`
+- `protocol`
+
+校验规则：
+
+- `host_ip` 必须等于 `127.0.0.1`
+- `host_port` 必须是 1-65535 的整数
+- `container_port` 必须是 1-65535 的整数
+- `protocol` 仅允许 `tcp`
+
+### 6.4 明确不支持
+
+第一版模板中明确不支持：
+
+- `volumes`
+- `mounts`
+- `privileged`
+- `network_mode`
+- `--network host`
+- `cap_add`
+- `device`
+- `pid`
+- `ipc`
+- `docker.sock`
+
+## 7. 🛠️ Docker 命令映射表
+
+### 7.1 命令映射
+
+| 动作 | 命令 | 说明 |
+|---|---|---|
+| `check` | `docker version` | 检查 CLI 可用 |
+| `check` | `docker info` | 检查 daemon 可达 |
+| `status` | `docker ps -a --filter "label=pikachu.lab=true" --filter "name=<container_name>" --format "{{.Names}}|{{.Status}}"` | 查询容器状态 |
+| `start`（首次） | `docker run -d --name <container_name> --label pikachu.lab=true ... -p 127.0.0.1:host:container <image>` | 首次创建并启动 |
+| `start`（已存在） | `docker start <container_name>` | 启动已存在容器 |
+| `stop` | `docker stop <container_name>` | 停止容器 |
+| `remove` | `docker rm -f <container_name>` | 删除容器 |
+| `logs` | `docker logs --tail 200 <container_name>` | 查看最近日志 |
+
+### 7.2 `docker run` 必带参数
+
+第一版 `docker run` 至少固定包含：
+
+- `-d`
+- `--name <container_name>`
+- `--label pikachu.lab=true`
+- `--label pikachu.template=<id>`
+- `-p 127.0.0.1:<host_port>:<container_port>`
+
+## 8. 🔐 Docker Lab 安全硬规则
+
+### 8.1 强制规则
+
+1. 禁止任意 Docker 命令执行
+2. 禁止自定义 `image`
+3. 禁止自定义 `command`
+4. 禁止自定义 `volume`
+5. 禁止 `privileged`
+6. 禁止挂载 `/var/run/docker.sock`
+7. 禁止 `--network host`
+8. 禁止 `--cap-add`
+9. 禁止 `--device`
+10. 只操作带 `pikachu.lab=true` label 的容器
+11. 日志输出必须经过 `htmlspecialchars`
+12. 日志最多 200 行
+13. 端口只绑定 `127.0.0.1`
+
+### 8.2 设计含义
+
+- 页面只能提交 `action` 和 `lab_id`
+- 运行参数只来自静态模板
+- 所有删除和状态检查都要同时满足“容器名匹配 + label 匹配”
+- 即使存在同名异常输入，也不能覆盖模板配置
+
+## 9. 🖥️ 页面设计细化
+
+### 9.1 `dockerlab.php`
+
+展示字段：
+
+- 模块标题
+- 模块用途
+- MVP 支持的 3 个模板
+- 使用前提：Docker Desktop 已启动
+- 安全边界说明
+- 进入 `dockerlab_center.php` 的入口链接
+
+### 9.2 `dockerlab_check.php`
+
+展示字段：
+
+- `docker version` 检查结果
+- `docker info` 检查结果
+- Docker daemon 是否可达
+- 当前错误消息
+- 返回编排中心入口
+
+### 9.3 `dockerlab_center.php`
+
+展示字段：
+
+- 环境状态摘要
+- 模板名称
+- 分类
+- 镜像名
+- 容器名
+- 本地端口
+- 当前状态
+- 访问入口
+- 操作按钮：启动 / 停止 / 重启 / 删除 / 日志
+- 当前操作结果提示
+
+### 9.4 `dockerlab_action.php`
+
+职责字段：
+
+- 接收 `POST`
+- 接收 `action`
+- 接收 `lab_id`
+- 接收 `csrf_token`
+- 返回执行结果后重定向或回显
+
+该页不作为独立浏览页使用，只作为动作处理入口。
+
+### 9.5 `dockerlab_logs.php`
+
+展示字段：
+
+- 模板名称
+- 容器名
+- 当前状态
+- 最近日志文本
+- 日志截断提示
+- 返回编排中心入口
+
+## 10. 🧪 验收标准
+
+### 10.1 环境类验收
+
+- Docker 未安装时，`dockerlab_check.php` 能明确提示不可用
+- Docker 未运行时，`dockerlab_check.php` 能明确提示 daemon 不可达
+- 模板目录正常时，3 个模板能被正确加载
+
+### 10.2 模板操作类验收
+
+- Redis：可启动 / 停止 / 删除
+- MySQL：可启动 / 停止 / 删除
+- Flask SSTI：可启动 / 停止 / 删除
+- 运行中模板可查看日志
+- 删除后状态回到 `not_created`
+
+### 10.3 安全类验收
+
+- 非白名单 `lab_id` 被拒绝
+- 非 `pikachu.lab=true` 的容器不能被删除
+- 用户无法通过请求参数覆盖 `image`
+- 用户无法通过请求参数覆盖 `command`
+- 用户无法通过请求参数覆盖 `port`
+- 日志输出经过 HTML 转义
+- 日志输出不超过 200 行
+
+### 10.4 访问类验收
+
+- 所有端口仅绑定 `127.0.0.1`
+- UI 中“打开”链接能正确指向本地入口
+
+## 11. 🧪 Windows PowerShell 验证命令
+
+### 11.1 Docker 环境检查
 
 ```powershell
 docker version
 docker info
-docker ps -a --filter "label=pikachu.lab=true"
-docker logs --tail 200 pikachu-redis-unauth
-docker stop pikachu-redis-unauth
-docker rm -f pikachu-redis-unauth
-docker port pikachu-redis-unauth
-netstat -ano | findstr 127.0.0.1:16379
 ```
 
-服务验证示例：
+### 11.2 模板容器状态检查
+
+```powershell
+docker ps -a --filter "label=pikachu.lab=true"
+docker ps -a --filter "label=pikachu.lab=true" --filter "name=pikachu-redis-unauth"
+docker ps -a --filter "label=pikachu.lab=true" --filter "name=pikachu-mysql-weak"
+docker ps -a --filter "label=pikachu.lab=true" --filter "name=pikachu-flask-ssti"
+```
+
+### 11.3 日志检查
+
+```powershell
+docker logs --tail 200 pikachu-redis-unauth
+docker logs --tail 200 pikachu-mysql-weak
+docker logs --tail 200 pikachu-flask-ssti
+```
+
+### 11.4 停止与删除检查
+
+```powershell
+docker stop pikachu-redis-unauth
+docker rm -f pikachu-redis-unauth
+docker stop pikachu-mysql-weak
+docker rm -f pikachu-mysql-weak
+docker stop pikachu-flask-ssti
+docker rm -f pikachu-flask-ssti
+```
+
+### 11.5 本地端口绑定检查
+
+```powershell
+docker port pikachu-redis-unauth
+docker port pikachu-mysql-weak
+docker port pikachu-flask-ssti
+netstat -ano | findstr 127.0.0.1
+```
+
+### 11.6 服务验证示例
 
 ```powershell
 redis-cli -h 127.0.0.1 -p 16379 ping
 mysql -h 127.0.0.1 -P 13306 -u root -p
-psql -h 127.0.0.1 -p 15432 -U postgres
-curl http://127.0.0.1:18080/
+curl http://127.0.0.1:15000/
 ```
 
-## 8. 📈 分阶段开发计划
+## 12. 📈 分阶段开发计划
 
-### 8.1 Phase 1：MVP
+### 12.1 Phase 1：MVP
 
-- 新增 `vul/dockerlab/` 模块
-- 增加概述页与编排中心页
-- 接入模板白名单
-- 实现启动 / 停止 / 删除 / 日志 / 打开链接
+- 新增 `vul/dockerlab/` 全部页面骨架
+- 新增 3 个 JSON 模板
+- 完成模板加载、环境检查、状态展示
+- 完成 `start / stop / remove / restart / logs`
 
-### 8.2 Phase 2：稳态增强
+### 12.2 Phase 2：第二批模板扩展
 
-- 抽离 Docker Lab 公共辅助函数
-- 增加更严格的模板字段校验
-- 增加操作审计日志
-- 增加更完整的状态提示
+- 增加 `postgres-weak`
+- 增加 `nginx-misconfig`
+- 增加 `flask-debug`
+- 增加 `fastapi-docs`
 
-### 8.3 Phase 3：有限多容器模板
+### 12.3 Phase 3：稳定性增强
 
-- 支持受控的固定多容器模板
-- 仍不开放任意 compose 字段
-- 仍不开放任意挂载和特权参数
+- 强化错误提示与边界处理
+- 优化日志页展示
+- 增加更完整的模板校验错误反馈
 
-### 8.4 Phase 4：独立 Controller 服务
+## 13. ✅ 结论与建议
 
-仅在模板数量、审计需求和权限隔离需求明显增加后再考虑从 PHP 进程中抽离。
+这份实施级设计将 Docker Lab 第一版严格限制在“3 个白名单模板 + 受控 Docker CLI + 本地单机容器管理”的范围内，已经可以直接指导后续开发。该方案与当前 Pikachu 仓库结构兼容，不要求改数据库，不要求引入独立服务，且把高风险的 Docker 能力压缩在固定动作和固定参数之内。
 
-## 9. ✅ 结论与建议
+## 14. 📎 附录
 
-Docker Lab 适合以 Pikachu 的新增独立模块形式落地，第一版不应引入复杂依赖，也不应修改现有漏洞模块。最合理的 MVP 是“本地 JSON 白名单模板 + PHP 受控 Docker CLI + 仅管理带 `pikachu.lab=true` 的本地容器”。该方案与当前仓库结构兼容，改动边界清晰，且能满足 Docker Desktop for Windows 的实际使用场景。
+### 14.1 当前 MVP 模板清单
 
-## 10. 📎 附录
+- `redis-unauth`
+- `mysql-weak`
+- `flask-ssti`
 
-### 10.1 本设计的关键约束
+### 14.2 第二批扩展模板清单
 
-- 不修改现有漏洞模块
-- 不做大规模重构
-- 不自动 commit
-- 不允许任意 Docker 命令执行
-- 不允许用户自定义高风险运行参数
+- `postgres-weak`
+- `nginx-misconfig`
+- `tomcat-weak`
+- `flask-debug`
+- `spring-actuator`
+- `fastapi-docs`
+- `node-proto-pollution`
 
-### 10.2 后续建议输出
+### 14.3 下一步建议输出
 
-若进入实现前细化阶段，下一份文档建议补充：
+进入开发前，建议再补一份更细的开发任务单，至少包含：
 
 - 菜单索引分配方案
-- 具体文件清单
-- 模板 schema
-- Docker 命令映射表
-- 页面交互流程
+- 每个页面的伪代码流程
+- 3 个模板的完整 JSON 实例
+- Docker CLI 输出解析格式

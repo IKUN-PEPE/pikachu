@@ -36,7 +36,9 @@ $templates = dockerlab_load_templates();
                 <br>
                 2. 白名单模板加载；
                 <br>
-                3. 模板列表与只读容器状态展示。
+                3. 模板列表与只读容器状态展示；
+                <br>
+                4. 白名单模板容器日志只读查看。
                 <br><br>
                 当前不会在页面中启动、停止、删除或重启容器，也不会提供任意 Docker 命令执行入口。
                 <br><br>
@@ -55,7 +57,8 @@ $templates = dockerlab_load_templates();
                 当前白名单模板数量：<strong><?php echo dockerlab_html((string)count($templates)); ?></strong>
                 <br><br>
                 <a href="dockerlab_check.php">进入环境检查页</a> |
-                <a href="dockerlab_center.php">进入模板列表页</a>
+                <a href="dockerlab_center.php">进入模板列表页</a> |
+                <a href="dockerlab_logs.php?id=redis-unauth">进入日志页示例</a>
             </div>
         </div><!-- /.page-content -->
     </div>
